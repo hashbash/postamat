@@ -21,10 +21,9 @@ jobs:
         source $HOME/streamlit_venv/bin/activate
         cd $HOME/postamat/
         git pull
-    - name: Deploy to server
+    - name: Restart service
       run: |
         echo $HOSTNAME
         hostname -I
-        source $HOME/streamlit_venv/bin/activate
-        cd $HOME/postamat/
-        git pull
+        systemctl restart postamat.service
+        systemctl status postamat.service
