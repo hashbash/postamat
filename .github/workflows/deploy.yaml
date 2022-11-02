@@ -2,8 +2,6 @@ name: CI/CD
 on:
   push:
     branches: [master]
-  pullrequest:
-    branches: [master]
 jobs:
   build:
     runs-on: self-hosted
