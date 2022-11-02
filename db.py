@@ -1,5 +1,8 @@
 import streamlit as st
 import psycopg2
+from os import environ
+
+import psycopg2.errors as pg_error
 
 
 # Initialize connection.
@@ -13,7 +16,14 @@ def init_connection():
 # Uses st.experimental_memo to only rerun when the query changes or after 10 min.
 @st.experimental_memo(ttl=10)
 def get_data(query: str):
-    with init_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(query)
-            return cur.fetchall()
+    def run_sql(sql: str):
+        with psycopg2.connect(**st.secrets["postgres"],
+                              password=environ['POSTAMAT_PG_PASS']) as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql)
+                return cur.fetchall()
+    try:  # dirty rerun if expired
+        return run_sql(query)
+    except pg_error:
+        return run_sql(query)
+

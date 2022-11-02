@@ -35,7 +35,7 @@ where 1=1
 """
 
 
-m = leafmap.Map(center=[55.7, 37.7], zoom=9, tiles="stamentoner")
+m = leafmap.Map(center=[55.7, 37.7], zoom=9, tiles="openstreetmap")
 m.add_heatmap(
     get_data(sql.format(column_name=column_name)),
     latitude="lon",
