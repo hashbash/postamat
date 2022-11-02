@@ -6,4 +6,7 @@ jobs:
   deploy:
     runs-on: self-hosted
     steps:
-    — run: echo $HOSTNAME
+    - uses: actions/checkout@v1
+    - name: Deploy to server
+      run: |
+        echo $HOSTNAME
