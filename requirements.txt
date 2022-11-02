@@ -152,3 +152,4 @@ widgetsnbextension==4.0.3
 wsproto==1.2.0
 xyzservices==2022.9.0
 zipp==3.10.0
+pdfkit==1.0.0
