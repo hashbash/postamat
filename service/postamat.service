@@ -1,0 +1,9 @@
+[Unit]
+Description=Postamat Web Service
+
+[Service]
+Type=simple
+ExecStart= /root/postamat/run.sh
+
+[Install]
+WantedBy=multi-user.target
