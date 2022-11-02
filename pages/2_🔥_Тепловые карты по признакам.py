@@ -5,7 +5,9 @@ from db import get_data
 
 st.set_page_config(layout="wide")
 
-st.title("Heatmap")
+st.title("Тепловые карты по признакам")
+
+st.info("Визуализация основных признаков, которые используются в модели.")
 
 feature_list_sql = """
 select column_name from information_schema.columns
@@ -16,9 +18,9 @@ and ordinal_position > 2
 and data_type = 'double precision'
 """
 
-
-column_name = st.selectbox("Feature", [x[0] for x in get_data(feature_list_sql)])
-radius = st.slider("Radius", min_value=2, max_value=50, step=2, value=12)
+st.sidebar.subheader('Параметры')
+column_name = st.sidebar.selectbox("Признак", [x[0] for x in get_data(feature_list_sql)])
+radius = st.sidebar.slider("Радиус", min_value=2, max_value=50, step=2, value=12)
 
 sql = """
 select
