@@ -11,13 +11,13 @@ jobs:
       run: |
         echo $HOSTNAME
         hostname -I
-        source streamlit_venv/bin/activate
-        cd postamat/
+        source $HOME/streamlit_venv/bin/activate
+        cd $HOME/postamat/
         pip install -q -r requirements.txt
     - name: Deploy to server
       run: |
         echo $HOSTNAME
         hostname -I
-        source streamlit_venv/bin/activate
-        cd postamat/
+        source $HOME/streamlit_venv/bin/activate
+        cd $HOME/postamat/
         git pull
