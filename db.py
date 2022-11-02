@@ -2,8 +2,6 @@ import streamlit as st
 import psycopg2
 from os import environ
 
-import psycopg2.errors as pg_error
-
 
 # Initialize connection.
 # Uses st.experimental_singleton to only run once.
@@ -24,6 +22,6 @@ def get_data(query: str):
                 return cur.fetchall()
     try:  # dirty rerun if expired
         return run_sql(query)
-    except pg_error:
+    except psycopg2.InternalError:
         return run_sql(query)
 
