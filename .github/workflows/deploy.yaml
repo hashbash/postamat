@@ -1,4 +1,4 @@
-name: CI/CD
+name: "CI/CD"
 on:
   push:
     branches: [master]
@@ -6,4 +6,4 @@ jobs:
   deploy:
     runs-on: self-hosted
     steps:
-      — run: echo $HOSTNAME
+    — run: echo $HOSTNAME
