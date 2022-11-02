@@ -7,6 +7,17 @@ jobs:
     runs-on: self-hosted
     steps:
     - uses: actions/checkout@v1
+    - name: Install requirements
+      run: |
+        echo $HOSTNAME
+        hostname -I
+        source streamlit_venv/bin/activate
+        cd postamat/
+        pip install -q -r requirements.txt
     - name: Deploy to server
       run: |
         echo $HOSTNAME
+        hostname -I
+        source streamlit_venv/bin/activate
+        cd postamat/
+        git pull
