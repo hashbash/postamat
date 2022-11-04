@@ -72,7 +72,7 @@ def get_model_h3_predictions(model_type_choise:str, district_type_choise:str, di
 
 def get_object_types():
     object_types_sql = "select distinct purpose_name from postamat.all_objects"
-    # object_types = [x[0].lower() for x in get_data(object_types_sql)]
+    object_types = [x[0] for x in get_data(object_types_sql)]
     return object_types
 
 
