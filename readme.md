@@ -1,11 +1,6 @@
 ## Deploy
 
-```commandline
-ssh root@135.181.97.90 
-source streamlit_venv/bin/activate
-cd postamat/
-git pull
-```
+Auto deploy. See `.github/workflows`
 
 ### Variables
 `POSTAMAT_PG_PASS` - required environment variable with postgres password
