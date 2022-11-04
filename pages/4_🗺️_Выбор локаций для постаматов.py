@@ -120,9 +120,9 @@ def compose_map(postamats, districts, model_output, model_h3):
         st.text("Не нашлось постаматов под данные фильтры")
         return
 
-    with open('data.json', 'r') as f:
-        cfg = json.load(f)
-
+    with open('data.txt','r') as f:
+        cfg=f.read()
+        cfg = eval(cfg)
     
     m = leafmap1.Map(center=[postamats['point_lat'].mean(), postamats['point_lon'].mean()], zoom=9, config = cfg)
     if len(postamats) > 0:
