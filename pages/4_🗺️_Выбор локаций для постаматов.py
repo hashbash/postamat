@@ -71,13 +71,13 @@ def get_model_h3_predictions(model_type_choise:str, district_type_choise:str, di
 
 
 def get_object_types():
-    object_types_sql = "select distinct purpose_name  from postamat.all_objects"
-    object_types = [x[0].lower() for x in get_data(object_types_sql)]
+    object_types_sql = "select distinct purpose_name from postamat.all_objects"
+    object_types = [x[0] for x in get_data(object_types_sql)]
     return object_types
 
 
 st.set_page_config(layout="wide")
-st.title("Лучшие локации для постаматов")
+st.subheader("Карта")
 
 st.sidebar.subheader('Параметры')
 
@@ -140,75 +140,58 @@ def compose_map(postamats, districts, model_output, model_h3):
 
 
 
-model_output_sql = f"""with good_locations as 
-(
- select ST_AsText(geometry) as geometry
-    , cast(id as bigint) as id
-    , geo_h3_10
-    , address_name
-    , case when purpose_name = 'Жилой дом' or t.structure_info_apartments_count > 10 then 4
-        when purpose_name = 'Киоск' then 1 end as obj_priority_
-    , purpose_name as obj_type_
-    , floors_ground_count
-    from postamat.platform_buildings t
- where purpose_name in ( 'Жилой дом', 'Киоск') or t.structure_info_apartments_count > 10
- union all 
- select ST_AsText(geometry) as geometry
-    , cast(id as bigint) as id
-    , geo_h3_10
-    , '' as address_name
-    , case when rubric = 'МФЦ' then 2
-        when rubric = 'Библиотеки' then 3 end as obj_priority_
-    , rubric as obj_type_
-    , 0 as floors_ground_count  
-    from postamat.platform_companies
- where rubric in ('МФЦ', 'Библиотеки') 
-)
-, all_togeather as 
-( 
-    select m.predictions*100 as predictions
-        , ST_AsText(pc.geometry) as geometry
-        , obj_type_
-        , address_name
-        , floors_ground_count
-        , row_number() over (order by obj_priority_ asc, predictions desc, floors_ground_count desc) as rn
-    from postamat.platform_model m
-    join postamat.platform_domain d on d.geo_h3_10 = m.geo_h3_10
-    join good_locations pc on pc.geo_h3_10 = m.geo_h3_10
+model_output_sql = f"""
+    with all_togeather as 
+    ( 
+        select address_name
+            , pc.geometry
+            , purpose_name
+            , floors_ground_count
+            , m.predictions*100 as predictions
+            , row_number() over (partition by pc.geo_h3_10 order by purpose_name asc, predictions desc, floors_ground_count desc) as rn
+        from postamat.platform_model m
+        join postamat.platform_domain d on d.geo_h3_10 = m.geo_h3_10
+        join postamat.all_objects pc on pc.geo_h3_10 = m.geo_h3_10
+        where 1=1
+            and model_type = '{model_type_choise}'
+            and {'adm_name' if district_type_choise == 'Районы' else 'okrug_name'} in {get_sql_list_as_string(list(districts['district']))}
+            and m.predictions*100 >  {score_filter[0]} and m.predictions*100  < {score_filter[1]}
+            and purpose_name in {get_sql_list_as_string(object_types_choise)}     
+    )
+    select * from all_togeather
     where 1=1
-        and model_type = '{model_type_choise}'
-        and {'adm_name' if district_type_choise == 'Районы' else 'okrug_name'} in {get_sql_list_as_string(list(districts['district']))}
-        and m.predictions*100 >  {score_filter[0]}and m.predictions*100  < {score_filter[1]}
-        and LOWER(obj_type_) in {get_sql_list_as_string(object_types_choise)}     
-)
-select * from all_togeather
-where 1=1
-    and rn <= {take_top}
+        and rn=1
+    order by predictions desc
+    limit {take_top}
 """
+print(model_output_sql)
 
 model_output = pd.DataFrame(
     get_data(model_output_sql),
     columns=[
-        "prediction",
-        "geometry",
-        "obj_type_",
         "address_name",
+        "geometry",
+        "purpose_name",
         "floors_ground_count",
-        "rn",
+        "prediction",
+        "rn"
     ],
 )
-
-model_output["geometry"] = model_output["geometry"].apply(loads)
-model_output = geopandas.GeoDataFrame(
-    model_output, geometry="geometry", crs="EPSG:4326"
-).sort_values(by="prediction", ascending=False)
+# дома и прочие обекты как результат оптимизаци
+model_output['geometry'] = model_output['geometry'].apply(lambda x: wkb.loads(x, hex=True)).astype(str)
 
 
-
+# модель
 model_h3 = get_model_h3_predictions(model_type_choise, district_type_choise, list(districts['district']))
 postamats = get_postamats(list(districts['district']))
 
 compose_map(postamats,districts,model_output, model_h3)
+
+
+model_output_for_report = model_output[['address_name', 'purpose_name', 'prediction']].copy()
+model_output_for_report.columns = ['Адрес', 'Назначение объекта', 'Скор модели']
+st.subheader("Реестр подходящих объектов")
+st.table(model_output_for_report)
 
 
 
