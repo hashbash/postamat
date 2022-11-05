@@ -155,7 +155,8 @@ def compose_map(postamats, districts, model_output, model_h3):
 
     if len(districts) > 0:
         m.add_data(districts, 'Районы')
-    m.to_streamlit(height=700)
+    # m.to_streamlit(height=700)
+    return m
 
 
 def calculate_coverage(model_type_choise: str, district_type_choise: str, districs_: list):
@@ -301,15 +302,14 @@ model_output = get_model_output(model_type_choise, district_type_choise, list(di
 postamats = get_postamats(list(districts['district']))
 
 
-
 # правая часть ui
 st.write('<style>div.block-container{padding-top:2rem;}</style>', unsafe_allow_html=True)
 st.subheader("Карта")
-compose_map(postamats, districts, model_output, model_h3)
-
+map_obj = compose_map(postamats, districts, model_output, model_h3)
+map_obj.to_streamlit(height=700)
 
 st.subheader("Отчёт о покрытии")
-report  = calculate_coverage(model_type_choise, district_type_choise, list(districts['district']))
+report = calculate_coverage(model_type_choise, district_type_choise, list(districts['district']))
 # CSS to inject contained in a string
 hide_table_row_index = """
             <style>
@@ -324,6 +324,17 @@ st.subheader("Реестр подходящих объектов")
 st.table(create_reesrt(model_output))
 
 
+def get_df_for_report(input_df: pd.DataFrame) -> pd.DataFrame:
+    df = input_df.copy()
+    df = df.drop(['geometry', 'floors_ground_count', 'rn'], axis=1)
+    df = df.rename(columns={
+        "address_name": "Адрес",
+        "purpose_name": "Тип",
+        "prediction": "Скор модели"
+    })
+    return df
+
+
 def create_pdf_report():
 
     # img_data = m._to_png()
@@ -332,6 +343,7 @@ def create_pdf_report():
     with open('src/report_1.html') as f:
         html_text = f.read()
 
+    df = get_df_for_report(model_output)
     html_text = html_text.format(
         dt=pd.Timestamp.now(),
         model_name=model_type_choise,
@@ -339,7 +351,7 @@ def create_pdf_report():
         loaction_text=', '.join(districts_choise),
         postamat_count=take_top,
         object_type_filter=', '.join(object_types_choise),
-        map_img=''
+        df=df.to_html(index=False)
     )
     pdfkit.from_string(html_text, '/tmp/report.pdf')
 
@@ -352,9 +364,18 @@ create_report_button = st.sidebar.button(
 if create_report_button:
     with open("/tmp/report.pdf", "rb") as file:
         download_button = st.sidebar.download_button(
-            label="Скачать отчёт [pdf]",
+            label="Скачать отчёт [PDF]",
             file_name='report.pdf',
             data=file,
             mime='application/octet-stream'
         )
 
+    def convert_df(df):
+        return df.to_csv().encode('utf-8')
+    csv = convert_df(get_df_for_report(model_output))
+    st.sidebar.download_button(
+        label="Скачать отчет [MS Excel]",
+        data=csv,
+        file_name='report.csv',
+        mime='text/csv'
+    )
