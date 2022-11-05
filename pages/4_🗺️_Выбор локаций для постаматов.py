@@ -95,7 +95,9 @@ def get_model_output(model_type_choise: str, district_type_choise: str, districs
         with all_togeather as 
         ( 
             select address_name
-                , pc.geometry
+                , ST_AsText(pc.geometry) as geometry
+                , ST_X(ST_AsText(ST_Centroid(pc.geometry))) as lon
+                , ST_Y(ST_AsText(ST_Centroid(pc.geometry))) as lat
                 , purpose_name
                 , floors_ground_count
                 , m.predictions*100 as predictions
@@ -118,12 +120,14 @@ def get_model_output(model_type_choise: str, district_type_choise: str, districs
 
     model_output = pd.DataFrame(
         get_data(model_output_sql),
-        columns=["address_name", "geometry", "purpose_name",
+        columns=["address_name", "geometry", "lon", "lat", "purpose_name",
                  "floors_ground_count", "prediction", "rn"],
     )
+    model_output = model_output.reset_index()
+    model_output['Номер'] = model_output['index']+1   
     # дома и прочие обекты как результат оптимизаци
-    model_output['geometry'] = model_output['geometry'].apply(
-        lambda x: wkb.loads(x, hex=True)).astype(str)
+    # model_output['geometry'] = model_output['geometry'].apply(
+    #     lambda x: wkb.loads(x, hex=True)).astype(str)
     return model_output
 
 def compose_map(postamats, districts, model_output, model_h3):
@@ -247,12 +251,10 @@ def create_reesrt(model_output: pd.DataFrame) -> pd.DataFrame:
     """
         Формирование реестра объектов
     """
-    model_output_for_report = model_output[[
+    model_output_for_report = model_output[['Номер',
         'address_name', 'purpose_name', 'prediction']].copy()
-    model_output_for_report = model_output_for_report.reset_index()
     model_output_for_report.columns = ['Номер',
-        'Адрес', 'Назначение объекта', 'Скор модели']
-    model_output_for_report['Номер'] = model_output_for_report['Номер']+1    
+        'Адрес', 'Назначение объекта', 'Скор модели'] 
     return model_output_for_report
 
 # ui
@@ -292,10 +294,10 @@ object_types_choise = st.sidebar.multiselect(
     "Объекты для размещения", object_types, object_types[:5]
 )
 
-
 # модель на хексагонах
 model_h3 = get_model_h3_predictions(
     model_type_choise, district_type_choise, list(districts['district']))
+
 # модель на домах
 model_output = get_model_output(model_type_choise, district_type_choise, list(districts['district']))
 postamats = get_postamats(list(districts['district']))
