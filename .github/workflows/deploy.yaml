@@ -15,12 +15,12 @@ jobs:
         cd $HOME/postamat/
         git pull
     - name: Install requirements
-        run: |
-          echo $HOSTNAME
-          hostname -I
-          source $HOME/streamlit_venv/bin/activate
-          cd $HOME/postamat/
-          pip install -q -r requirements.txt
+      run: |
+        echo $HOSTNAME
+        hostname -I
+        source $HOME/streamlit_venv/bin/activate
+        cd $HOME/postamat/
+        pip install -q -r requirements.txt
     - name: Restart service
       run: |
         echo $HOSTNAME
