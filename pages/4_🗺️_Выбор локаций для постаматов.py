@@ -84,7 +84,7 @@ def get_model_h3_predictions(model_type_choise: str, district_type_choise: str, 
             and model_type in ('{model_type_choise}')
             and {'adm_name' if district_type_choise == 'Районы' else 'okrug_name'} in {get_sql_list_as_string(districs_)}"""
                  ),
-        columns=["predictions", "geometry"]
+        columns=["Значение модели", "geometry"]
     )
     model_h3['geometry'] = model_h3['geometry'].apply(
         lambda x: wkb.loads(x, hex=True)).astype(str)
@@ -94,12 +94,22 @@ def get_model_output(model_type_choise: str, district_type_choise: str, districs
     model_output_sql = f"""
         with all_togeather as 
         ( 
-            select address_name
+            select case when address_name is null or address_name ='' then name else address_name end as address_name
                 , ST_AsText(pc.geometry) as geometry
+                , ST_AsText(ST_Centroid(pc.geometry)) as pt
                 , ST_X(ST_AsText(ST_Centroid(pc.geometry))) as lon
                 , ST_Y(ST_AsText(ST_Centroid(pc.geometry))) as lat
                 , purpose_name
+                , case when purpose_name = 'киоск печати' then m.predictions + 60 
+		            when purpose_name = 'МФЦ' then m.predictions + 50
+		            when purpose_name = 'библиотека' then m.predictions + 40 
+		            when purpose_name = 'дом культуры' then m.predictions + 30 
+		            when purpose_name = 'спортивный объект' then m.predictions + 20
+		            when purpose_name = 'жилой дом' then m.predictions + 10 end as prediction_corrected  
                 , floors_ground_count
+                , d.adm_name
+                , d.okrug_name
+                , model_type
                 , m.predictions*100 as predictions
                 , row_number() over (partition by pc.geo_h3_10 order by purpose_name asc, predictions desc, floors_ground_count desc) as rn
             from postamat.platform_model m
@@ -114,20 +124,19 @@ def get_model_output(model_type_choise: str, district_type_choise: str, districs
         select * from all_togeather
         where 1=1
             and rn=1
-        order by predictions desc
+        order by prediction_corrected desc   
         limit {take_top}
     """
 
     model_output = pd.DataFrame(
         get_data(model_output_sql),
-        columns=["address_name", "geometry", "lon", "lat", "purpose_name",
-                 "floors_ground_count", "prediction", "rn"],
+        columns=["Адрес", "geometry", 'Координата', "lon", "lat", 'Тип объекта размещения', 'prediction_corrected', "Число этажей",
+                 'Округ', 'Район', 
+                  'Модель рассчёта', 'Значение модели', "rn"]
     )
     model_output = model_output.reset_index()
+    model_output = model_output.drop(['prediction_corrected'], axis = 1)
     model_output['Номер'] = model_output['index']+1   
-    # дома и прочие обекты как результат оптимизаци
-    # model_output['geometry'] = model_output['geometry'].apply(
-    #     lambda x: wkb.loads(x, hex=True)).astype(str)
     return model_output
 
 def compose_map(postamats, districts, model_output, model_h3):
@@ -251,10 +260,9 @@ def create_reesrt(model_output: pd.DataFrame) -> pd.DataFrame:
     """
         Формирование реестра объектов
     """
-    model_output_for_report = model_output[['Номер',
-        'address_name', 'purpose_name', 'prediction']].copy()
-    model_output_for_report.columns = ['Номер',
-        'Адрес', 'Назначение объекта', 'Скор модели'] 
+
+    model_output_for_report = model_output[['Номер', 'Округ', 'Район', 'Тип объекта размещения', 'Координата',
+        'Адрес', 'Модель рассчёта', 'Значение модели']].copy()
     return model_output_for_report
 
 # ui
