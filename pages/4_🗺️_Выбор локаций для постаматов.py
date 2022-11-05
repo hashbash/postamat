@@ -1,8 +1,5 @@
 import streamlit as st
-# import leafmap.kepler as leafmap1
 import kepler_folimap as leafmap1
-import json
-import geopandas
 import pandas as pd
 from db import get_data
 from shapely.wkt import loads
@@ -13,23 +10,34 @@ from PIL import Image
 
 
 def get_sql_list_as_string(items):
+    """
+    """
     if len(items) == 0:
         return "('random_string')"
     return f"""{tuple(items) if len(items)> 1 else f"('{items[0]}')"}"""
 
-
-def get_districts():
-    district_type_choise = "Районы"
-    districts_sql = f"""select {"adm_name" if district_type_choise == "Районы" else "okrug_name"}, ST_AsText(geometry)
-    from postamat.{"adm_zones" if district_type_choise == "Районы" else "adm_okr_zones"}
+def get_districts(district_type_choise) -> pd.DataFrame:
+    """
+        Получение геометрии районов
+    """
+    districts_sql = f"""
+        select {"adm_name" if district_type_choise == "Районы" else "okrug_name"}
+                , ST_AsText(geometry)
+        from postamat.{"adm_zones" if district_type_choise == "Районы" else "adm_okr_zones"}
     """
     districts = get_data(districts_sql)
     districts = pd.DataFrame(districts, columns=["district", "geometry"])
+    districts = districts.sort_values(by = 'district')
     districts["geometry"] = districts["geometry"].apply(loads).astype(str)
+
     return districts
 
+def get_postamats(districs_: list) -> pd.DataFrame:
+    """
+        Получение списка массива постаматов по заданному району
+        :param districs_ - список районов
+    """
 
-def get_postamats(districs_):
     postamat_sql = f"""
         select point_lat
             , point_lon
@@ -40,53 +48,223 @@ def get_postamats(districs_):
             and rubric = 'Постаматы'
             and {'adm_name' if district_type_choise == 'Районы' else 'okrug_name'} in {get_sql_list_as_string(districs_)}"""
     postamats = get_data(postamat_sql)
-    postamats = pd.DataFrame(postamats, columns=["point_lat", "point_lon", "name"])
+    postamats = pd.DataFrame(
+        postamats, columns=["point_lat", "point_lon", "name"])
     return postamats
 
-
-def get_model_types():
+def get_model_types() -> list:
+    """
+        Получение списка моделей, которыми можно пользоваться
+    """
     model_types_sql = "select distinct model_type from postamat.platform_model"
     model_types = [x[0] for x in get_data(model_types_sql)]
     return model_types
 
+def get_object_types():
+    """
+        Получение списка объектов, доступных для оптимизации (мфц, жилые дома и так далее)
+    """
+    object_types_sql = "select distinct purpose_name from postamat.all_objects"
+    object_types = [x[0] for x in get_data(object_types_sql)]
+    return object_types
 
-
-def get_model_h3_predictions(model_type_choise:str, district_type_choise:str, districs_:list):
+def get_model_h3_predictions(model_type_choise: str, district_type_choise: str, districs_: list)->pd.DataFrame:
+    """
+        Получение предсказаний модели на выбранные районы
+        :param model_type_choise - список районов        
+        :param district_type_choise - список районов  
+        :param districs_ - список районов
+    """
     model_h3 = pd.DataFrame(
-    get_data(f"""
+        get_data(f"""
         select m.predictions, d.geometry 
         from postamat.platform_model m
         join postamat.platform_domain d on d.geo_h3_10 = m.geo_h3_10
         where 1=1
             and model_type in ('{model_type_choise}')
             and {'adm_name' if district_type_choise == 'Районы' else 'okrug_name'} in {get_sql_list_as_string(districs_)}"""
-            ),
-    columns=[
-        "predictions",
-        "geometry"
-    ]
+                 ),
+        columns=["predictions", "geometry"]
     )
-    model_h3['geometry'] = model_h3['geometry'].apply(lambda x: wkb.loads(x, hex=True)).astype(str)
+    model_h3['geometry'] = model_h3['geometry'].apply(
+        lambda x: wkb.loads(x, hex=True)).astype(str)
     return model_h3
 
+def get_model_output(model_type_choise: str, district_type_choise: str, districs_: list) -> pd.DataFrame:
+    model_output_sql = f"""
+        with all_togeather as 
+        ( 
+            select address_name
+                , pc.geometry
+                , purpose_name
+                , floors_ground_count
+                , m.predictions*100 as predictions
+                , row_number() over (partition by pc.geo_h3_10 order by purpose_name asc, predictions desc, floors_ground_count desc) as rn
+            from postamat.platform_model m
+            join postamat.platform_domain d on d.geo_h3_10 = m.geo_h3_10
+            join postamat.all_objects pc on pc.geo_h3_10 = m.geo_h3_10
+            where 1=1
+                and model_type = '{model_type_choise}'
+                and {'adm_name' if district_type_choise == 'Районы' else 'okrug_name'} in {get_sql_list_as_string(districs_)}
+                and m.predictions*100 >  {score_filter[0]} and m.predictions*100  < {score_filter[1]}
+                and purpose_name in {get_sql_list_as_string(object_types_choise)}     
+        )
+        select * from all_togeather
+        where 1=1
+            and rn=1
+        order by predictions desc
+        limit {take_top}
+    """
 
-def get_object_types():
-    object_types_sql = "select distinct purpose_name from postamat.all_objects"
-    object_types = [x[0] for x in get_data(object_types_sql)]
-    return object_types
+    model_output = pd.DataFrame(
+        get_data(model_output_sql),
+        columns=["address_name", "geometry", "purpose_name",
+                 "floors_ground_count", "prediction", "rn"],
+    )
+    # дома и прочие обекты как результат оптимизаци
+    model_output['geometry'] = model_output['geometry'].apply(
+        lambda x: wkb.loads(x, hex=True)).astype(str)
+    return model_output
+
+def compose_map(postamats, districts, model_output, model_h3):
+    """
+        Отрисовка карты
+        :parmam postamats - массив с текущей сетью постаматов (конкуренты)
+        :parmam districts - полигон с выбранными границами районов
+        :parmam model_output - результат оптимизации - на объектах
+        :parmam model_h3 - результат оптимизации - на хексагонах - подложка
+    """
+    if len(model_output) == 0:
+        st.text("Не нашлось постаматов под данные фильтры")
+        return
+
+    with open('data.txt', 'r') as f:
+        cfg = f.read()
+        cfg = eval(cfg)
+
+    m = leafmap1.Map(center=[postamats['point_lat'].mean(
+    ), postamats['point_lon'].mean()], zoom=9, config=cfg)
+    if len(postamats) > 0:
+        m.add_data(postamats, 'Постаматы')
+
+    if len(model_output) > 0:
+        m.add_data(model_output, 'Модель')
+
+    if len(model_h3) > 0:
+        m.add_data(model_h3, 'Модель(hex)')
+
+    if len(districts) > 0:
+        m.add_data(districts, 'Районы')
+    m.to_streamlit(height=700)
 
 
+def calculate_coverage(model_type_choise: str, district_type_choise: str, districs_: list):
+    """Расчёт покрытия шаговой доступностью по выбранным постаматам"""
+    sql = f"""
+        with good_locations as 
+        (
+            with all_togeather as 
+            ( 
+                select address_name
+                    , pc.geo_h3_10
+                    , pc.geometry
+                    , purpose_name
+                    , floors_ground_count
+                    , m.predictions*100 as predictions
+                    , row_number() over (partition by pc.geo_h3_10 order by purpose_name asc, predictions desc, floors_ground_count desc) as rn
+                from postamat.platform_model m
+                join postamat.platform_domain d on d.geo_h3_10 = m.geo_h3_10
+                join postamat.all_objects pc on pc.geo_h3_10 = m.geo_h3_10
+                where 1=1
+                    and model_type = '{model_type_choise}'
+                    and {'adm_name' if district_type_choise == 'Районы' else 'okrug_name'} in {get_sql_list_as_string(districs_)}
+                    and m.predictions*100 >  {score_filter[0]} and m.predictions*100  < {score_filter[1]}
+                    and purpose_name in {get_sql_list_as_string(object_types_choise)}      
+            )
+            select * from all_togeather
+            where 1=1
+                and rn=1
+            order by predictions desc
+            limit {take_top}
+        )
+        , model_results as 
+        ( -- хексагоны с хорошими постаматами
+            select distinct pc.geo_h3_10
+            from postamat.platform_model m
+            join postamat.platform_domain d on d.geo_h3_10 = m.geo_h3_10
+            join good_locations pc on pc.geo_h3_10 = m.geo_h3_10
+            where 1=1
+                and model_type = '{model_type_choise}'
+                and {'adm_name' if district_type_choise == 'Районы' else 'okrug_name'} in {get_sql_list_as_string(districs_)}
+        )
+        , all_population as 
+        ( -- население в выбранном регионе
+            select distinct pra.geometry as point_geom
+                , peop_id
+            from postamat.platform_domain pd 
+            join (SELECT * FROM postamat.platform_isochrones pi2 where kind = 'walking_5min') iso
+                on pd.geo_h3_10 = iso.geo_h3_10
+            join postamat.popul_msk_raw_all pra
+                on ST_Contains(iso.geometry, pra.geometry)
+            where {'adm_name' if district_type_choise == 'Районы' else 'okrug_name'} in {get_sql_list_as_string(districs_)}
+        )
+        , sum_population as 
+        (
+            select sum(peop_id) as area_population
+            from all_population
+        )
+        , filter_isochrones as 
+        ( 
+            select distinct 
+                --iso.*
+                pra.geometry as point_geom
+                , pra.peop_id
+            from model_results mr
+            join (SELECT * FROM postamat.platform_isochrones pi2 where kind = 'walking_5min') iso 
+                  on mr.geo_h3_10 = iso.geo_h3_10
+            join postamat.popul_msk_raw_all pra
+                  on ST_Contains(iso.geometry, pra.geometry)
+        )
+        , sum_covered_people as 
+        ( 
+            select sum(iso.peop_id) as covered_people
+            from filter_isochrones iso
+        )
+        select scv.covered_people
+            , sp.area_population
+            , round(scv.covered_people / sp.area_population, 2) as perc
+        from sum_covered_people scv
+        cross join sum_population sp    
+    """
+    coverage_output = pd.DataFrame(
+        get_data(sql),
+        columns=["Покрытое население в шаговой доступности", "Общее население в шаговой доступности в выбранной локации", "Процент покрытия в выбранной локации"],
+    )
+    return coverage_output
+
+
+def create_reesrt(model_output: pd.DataFrame) -> pd.DataFrame:
+    """
+        Формирование реестра объектов
+    """
+    model_output_for_report = model_output[[
+        'address_name', 'purpose_name', 'prediction']].copy()
+    model_output_for_report = model_output_for_report.reset_index()
+    model_output_for_report.columns = ['Номер',
+        'Адрес', 'Назначение объекта', 'Скор модели']
+    model_output_for_report['Номер'] = model_output_for_report['Номер']+1    
+    return model_output_for_report
+
+# ui
 st.set_page_config(layout="wide")
-st.subheader("Карта")
-
 st.sidebar.subheader('Параметры')
 
-district_types = ("Районы", "Округа")
-district_type_choise = st.sidebar.radio("", district_types)
 
+# ui по районам
+st.write('<style>div.row-widget.stRadio > div{flex-direction:row;}</style>', unsafe_allow_html=True)
+district_type_choise = st.sidebar.radio("", ("Районы", "Округа"))
+districts = get_districts(district_type_choise)
 
-
-districts = get_districts()
 districts_choise = st.sidebar.multiselect(
     district_type_choise,
     districts["district"].values,
@@ -94,105 +272,56 @@ districts_choise = st.sidebar.multiselect(
 )
 districts = districts[districts["district"].isin(districts_choise)]
 
-
+# ui по параметрам модели
 model_type_choise = st.sidebar.selectbox(
     "Модель",
     get_model_types(),
-    help='Выберите необходимую модель размещения. Логика моделей и разница между ними описана в презентации.'
+    help='Выберите необходимую модель размещения. Логика моделей и разница между ними описана в презентации.',
+    index=1
 )
 
 #
 take_top = st.sidebar.slider(
-    "Кол-во постаматов для размещения", min_value=1, max_value=1000, step=1, value=50)
+    "Кол-во постаматов для размещения", min_value=1, max_value=1000, step=1, value=60)
 score_filter = st.sidebar.slider(
-    "Скор модели", min_value=0.0, max_value=100.0, value=(50.0, 100.0))
+    "Скор модели", min_value=0.0, max_value=100.0, value=(20.0, 100.0))
 
 
 object_types = get_object_types()
 object_types_choise = st.sidebar.multiselect(
-    "Объекты для размещения (NOT IMPLEMENTED)", object_types, object_types[:3]
+    "Объекты для размещения", object_types, object_types[:5]
 )
 
 
-def compose_map(postamats, districts, model_output, model_h3):
-
-    if len(model_output) == 0:
-        st.text("Не нашлось постаматов под данные фильтры")
-        return
-
-    with open('data.txt','r') as f:
-        cfg=f.read()
-        cfg = eval(cfg)
-    
-    m = leafmap1.Map(center=[postamats['point_lat'].mean(), postamats['point_lon'].mean()], zoom=9, config = cfg)
-    if len(postamats) > 0:
-        m.add_data(postamats, 'Постаматы')
-
-    if len(model_output) > 0:
-        m.add_data(model_output, 'Модель')
-        
-    if len(model_h3) > 0:
-        m.add_data(model_h3, 'Модель(hex)')        
-
-    if len(districts) > 0:
-        m.add_data(districts, 'Районы')
-    m.to_streamlit(height=700)
-
-
-
-model_output_sql = f"""
-    with all_togeather as 
-    ( 
-        select address_name
-            , pc.geometry
-            , purpose_name
-            , floors_ground_count
-            , m.predictions*100 as predictions
-            , row_number() over (partition by pc.geo_h3_10 order by purpose_name asc, predictions desc, floors_ground_count desc) as rn
-        from postamat.platform_model m
-        join postamat.platform_domain d on d.geo_h3_10 = m.geo_h3_10
-        join postamat.all_objects pc on pc.geo_h3_10 = m.geo_h3_10
-        where 1=1
-            and model_type = '{model_type_choise}'
-            and {'adm_name' if district_type_choise == 'Районы' else 'okrug_name'} in {get_sql_list_as_string(list(districts['district']))}
-            and m.predictions*100 >  {score_filter[0]} and m.predictions*100  < {score_filter[1]}
-            and purpose_name in {get_sql_list_as_string(object_types_choise)}     
-    )
-    select * from all_togeather
-    where 1=1
-        and rn=1
-    order by predictions desc
-    limit {take_top}
-"""
-print(model_output_sql)
-
-model_output = pd.DataFrame(
-    get_data(model_output_sql),
-    columns=[
-        "address_name",
-        "geometry",
-        "purpose_name",
-        "floors_ground_count",
-        "prediction",
-        "rn"
-    ],
-)
-# дома и прочие обекты как результат оптимизаци
-model_output['geometry'] = model_output['geometry'].apply(lambda x: wkb.loads(x, hex=True)).astype(str)
-
-
-# модель
-model_h3 = get_model_h3_predictions(model_type_choise, district_type_choise, list(districts['district']))
+# модель на хексагонах
+model_h3 = get_model_h3_predictions(
+    model_type_choise, district_type_choise, list(districts['district']))
+# модель на домах
+model_output = get_model_output(model_type_choise, district_type_choise, list(districts['district']))
 postamats = get_postamats(list(districts['district']))
 
-compose_map(postamats,districts,model_output, model_h3)
 
 
-model_output_for_report = model_output[['address_name', 'purpose_name', 'prediction']].copy()
-model_output_for_report.columns = ['Адрес', 'Назначение объекта', 'Скор модели']
+# правая часть ui
+st.write('<style>div.block-container{padding-top:2rem;}</style>', unsafe_allow_html=True)
+st.subheader("Карта")
+compose_map(postamats, districts, model_output, model_h3)
+
+
+st.subheader("Отчёт о покрытии")
+report  = calculate_coverage(model_type_choise, district_type_choise, list(districts['district']))
+# CSS to inject contained in a string
+hide_table_row_index = """
+            <style>
+            thead tr th:first-child {display:none}
+            tbody th {display:none}
+            </style>
+            """
+st.markdown(hide_table_row_index, unsafe_allow_html=True)
+st.table(report)
+
 st.subheader("Реестр подходящих объектов")
-st.table(model_output_for_report)
-
+st.table(create_reesrt(model_output))
 
 
 def create_pdf_report():
@@ -229,4 +358,3 @@ if create_report_button:
             mime='application/octet-stream'
         )
 
-# m.to_streamlit(height=700)
