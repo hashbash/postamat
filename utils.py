@@ -16,14 +16,15 @@ def get_sql_list_as_string(items):
     return f"""{tuple(items) if len(items)> 1 else f"('{items[0]}')"}"""
 
 
-def get_districts(district_type_choise) -> pd.DataFrame:
+def get_districts(district_type) -> pd.DataFrame:
     """
     Получение геометрии районов
+    :param district_type - тип районов (Районы или Округа)
     """
     districts_sql = f"""
-        select {"adm_name" if district_type_choise == "Районы" else "okrug_name"}
+        select {"adm_name" if district_type == "Районы" else "okrug_name"}
                 , ST_AsText(geometry)
-        from postamat.{"adm_zones" if district_type_choise == "Районы" else "adm_okr_zones"}
+        from postamat.{"adm_zones" if district_type == "Районы" else "adm_okr_zones"}
     """
     districts = get_data(districts_sql)
     districts = pd.DataFrame(districts, columns=["district", "geometry"])
@@ -33,10 +34,11 @@ def get_districts(district_type_choise) -> pd.DataFrame:
     return districts
 
 
-def get_postamats(districs_: list, district_type_choise: str) -> pd.DataFrame:
+def get_postamats(districs_: list, district_type: str) -> pd.DataFrame:
     """
     Получение списка массива постаматов по заданному району
     :param districs_ - список районов
+    :param district_type - тип районов (Районы или Округа)
     """
 
     postamat_sql = f"""
@@ -47,7 +49,7 @@ def get_postamats(districs_: list, district_type_choise: str) -> pd.DataFrame:
         join postamat.platform_domain d on d.geo_h3_10 = m.geo_h3_10
         where 1=1
             and rubric = 'Постаматы'
-            and {'adm_name' if district_type_choise == 'Районы' else 'okrug_name'} in {get_sql_list_as_string(districs_)}"""
+            and {'adm_name' if district_type == 'Районы' else 'okrug_name'} in {get_sql_list_as_string(districs_)}"""
     postamats = get_data(postamat_sql)
     postamats = pd.DataFrame(postamats, columns=["point_lat", "point_lon", "name"])
     return postamats
@@ -172,10 +174,12 @@ def get_model_output(
 def compose_map(postamats, districts, model_output, model_h3, center=None, zoom=9):
     """
     Отрисовка карты
-    :parmam postamats - массив с текущей сетью постаматов (конкуренты)
-    :parmam districts - полигон с выбранными границами районов
-    :parmam model_output - результат оптимизации - на объектах
-    :parmam model_h3 - результат оптимизации - на хексагонах - подложка
+    :param postamats - массив с текущей сетью постаматов (конкуренты)
+    :param districts - полигон с выбранными границами районов
+    :param model_output - результат оптимизации - на объектах
+    :param model_h3 - результат оптимизации - на хексагонах - подложка
+    :param center - координаты центра карты
+    :param zoom - масштаб карты
     """
     if center is None:
         center = [postamats["point_lat"].mean(), postamats["point_lon"].mean()]
