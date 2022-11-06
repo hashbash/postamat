@@ -16,4 +16,11 @@ st.header('Ссылки')
 
 st.write('Репозиторий интерфейса: https://github.com/hashbash/postamat')
 st.write('Репозиторий модели: https://github.com/GavrilinEugene/postamat_recomendation_system')
-st.write('Репозиторий API: tbu')
+st.write('Репозиторий API: https://github.com/hashbash/postamat-api')
+
+st.header('Документация')
+
+st.write('Сопроводительная документация: https://docs.google.com/document/d/1v01o1oNmxaOsYtHOlh2oVsj4Nu0acvkeK6rWu7V'
+         'E7U8/edit#heading=h.ldjxqtfx6gee')
+st.write('Документация API (swagger): http://135.181.97.90:8098/docs')
+
