@@ -1,0 +1,7 @@
+General information:
+  version: 0.7
+  name: House Prices Prediction Project
+  purpose: Predicting the sale price of houses
+  date: auto
+  contributors: Yann Golhen, Sebastien Bidault, Thomas Bouche, Guillaume Vignal, Thibaud Real
+  description: This work is a data science project that tries to predict the sale of houses based on 79 explanatory variables. It was designed inside the data science team at X. and improved since the beggining of the project in 2019. The model was put into production since February 2021.
