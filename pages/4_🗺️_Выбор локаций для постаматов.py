@@ -111,7 +111,13 @@ def get_model_output(model_type_choise: str, district_type_choise: str, districs
                 , d.okrug_name
                 , model_type
                 , m.predictions*100 as predictions
-                , row_number() over (partition by h.geo_h3_9 order by predictions desc, floors_ground_count desc) as rn
+                , row_number() over (partition by h.geo_h3_9 order by  case when purpose_name = 'киоск печати' then m.predictions + 60 
+                                when purpose_name = 'МФЦ' then m.predictions + 50
+                                when purpose_name = 'библиотека' then m.predictions + 40 
+                                when purpose_name = 'дом культуры' then m.predictions + 30 
+                                when purpose_name = 'спортивный объект' then m.predictions + 20
+                                when purpose_name = 'жилой дом' then m.predictions + 10 end desc,
+                                predictions desc, floors_ground_count desc) as rn
             from postamat.platform_model m
             join postamat.platform_domain d on d.geo_h3_10 = m.geo_h3_10
             join postamat.all_objects pc on pc.geo_h3_10 = m.geo_h3_10
