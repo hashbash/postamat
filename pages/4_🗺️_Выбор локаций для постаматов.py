@@ -5,8 +5,6 @@ from db import get_data
 from shapely.wkt import loads
 from shapely import wkb
 import pdfkit
-import io
-from PIL import Image
 
 
 def get_sql_list_as_string(items):
@@ -338,7 +336,7 @@ st.table(create_reesrt(model_output))
 
 def get_df_for_report(input_df: pd.DataFrame) -> pd.DataFrame:
     df = input_df.copy()
-    df = df.drop(['geometry', 'floors_ground_count', 'rn'], axis=1)
+    df = df.drop(['geometry', 'rn'], axis=1)
     df = df.rename(columns={
         "address_name": "Адрес",
         "purpose_name": "Тип",
@@ -347,14 +345,10 @@ def get_df_for_report(input_df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def create_pdf_report():
-
-    # img_data = m._to_png()
-    # img = Image.open(io.BytesIO(img_data))
-
+def create_report_file():
+    img_html = ''
     with open('src/report_1.html') as f:
         html_text = f.read()
-
     df = get_df_for_report(model_output)
     html_text = html_text.format(
         dt=pd.Timestamp.now(),
@@ -363,14 +357,33 @@ def create_pdf_report():
         loaction_text=', '.join(districts_choise),
         postamat_count=take_top,
         object_type_filter=', '.join(object_types_choise),
-        df=df.to_html(index=False)
+        df=df.to_html(index=False),
+        gap='',
+        img_html=img_html,
     )
     pdfkit.from_string(html_text, '/tmp/report.pdf')
+
+    with open('src/report_1.html') as f:
+        html_text = f.read()
+
+    img_html = map_obj._repr_html_().decode()
+    html_text_ = html_text.format(
+        dt=pd.Timestamp.now(),
+        model_name=model_type_choise,
+        adm_type=district_type_choise,
+        loaction_text=', '.join(districts_choise),
+        postamat_count=take_top,
+        object_type_filter=', '.join(object_types_choise),
+        df=df.to_html(index=False),
+        gap='<br />'*48,
+        img_html=img_html)
+    with open('/tmp/report.html', 'w') as f_:
+        f_.write(html_text_)
 
 
 create_report_button = st.sidebar.button(
     label='Сформировать отчет',
-    on_click=create_pdf_report
+    on_click=create_report_file,
 )
 
 if create_report_button:
@@ -391,3 +404,10 @@ if create_report_button:
         file_name='report.csv',
         mime='text/csv'
     )
+    with open('/tmp/report.html', 'rb') as f:
+        download_html_button = st.sidebar.download_button(
+            label="Скачать отчёт [HTML]",
+            file_name='report.html',
+            data=f,
+            mime='application/octet-stream'
+        )
