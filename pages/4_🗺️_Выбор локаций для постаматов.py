@@ -111,10 +111,11 @@ def get_model_output(model_type_choise: str, district_type_choise: str, districs
                 , d.okrug_name
                 , model_type
                 , m.predictions*100 as predictions
-                , row_number() over (partition by pc.geo_h3_10 order by purpose_name asc, predictions desc, floors_ground_count desc) as rn
+                , row_number() over (partition by h.geo_h3_9 order by predictions desc, floors_ground_count desc) as rn
             from postamat.platform_model m
             join postamat.platform_domain d on d.geo_h3_10 = m.geo_h3_10
             join postamat.all_objects pc on pc.geo_h3_10 = m.geo_h3_10
+            join postamat.h3_10_9 h on h.geo_h3_10 = d.geo_h3_10
             where 1=1
                 and model_type = '{model_type_choise}'
                 and {'adm_name' if district_type_choise == 'Районы' else 'okrug_name'} in {get_sql_list_as_string(districs_)}
@@ -127,6 +128,7 @@ def get_model_output(model_type_choise: str, district_type_choise: str, districs
         order by prediction_corrected desc   
         limit {take_top}
     """
+    # print(model_output_sql)
 
     model_output = pd.DataFrame(
         get_data(model_output_sql),
