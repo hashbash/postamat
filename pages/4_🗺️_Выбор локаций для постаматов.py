@@ -8,15 +8,15 @@ import pdfkit
 
 
 def get_sql_list_as_string(items):
-    """
-    """
+    """ """
     if len(items) == 0:
         return "('random_string')"
     return f"""{tuple(items) if len(items)> 1 else f"('{items[0]}')"}"""
 
+
 def get_districts(district_type_choise) -> pd.DataFrame:
     """
-        Получение геометрии районов
+    Получение геометрии районов
     """
     districts_sql = f"""
         select {"adm_name" if district_type_choise == "Районы" else "okrug_name"}
@@ -25,15 +25,16 @@ def get_districts(district_type_choise) -> pd.DataFrame:
     """
     districts = get_data(districts_sql)
     districts = pd.DataFrame(districts, columns=["district", "geometry"])
-    districts = districts.sort_values(by = 'district')
+    districts = districts.sort_values(by="district")
     districts["geometry"] = districts["geometry"].apply(loads).astype(str)
 
     return districts
 
+
 def get_postamats(districs_: list) -> pd.DataFrame:
     """
-        Получение списка массива постаматов по заданному району
-        :param districs_ - список районов
+    Получение списка массива постаматов по заданному району
+    :param districs_ - список районов
     """
 
     postamat_sql = f"""
@@ -46,49 +47,58 @@ def get_postamats(districs_: list) -> pd.DataFrame:
             and rubric = 'Постаматы'
             and {'adm_name' if district_type_choise == 'Районы' else 'okrug_name'} in {get_sql_list_as_string(districs_)}"""
     postamats = get_data(postamat_sql)
-    postamats = pd.DataFrame(
-        postamats, columns=["point_lat", "point_lon", "name"])
+    postamats = pd.DataFrame(postamats, columns=["point_lat", "point_lon", "name"])
     return postamats
+
 
 def get_model_types() -> list:
     """
-        Получение списка моделей, которыми можно пользоваться
+    Получение списка моделей, которыми можно пользоваться
     """
     model_types_sql = "select distinct model_type from postamat.platform_model"
     model_types = [x[0] for x in get_data(model_types_sql)]
     return model_types
 
+
 def get_object_types():
     """
-        Получение списка объектов, доступных для оптимизации (мфц, жилые дома и так далее)
+    Получение списка объектов, доступных для оптимизации (мфц, жилые дома и так далее)
     """
     object_types_sql = "select distinct purpose_name from postamat.all_objects"
     object_types = [x[0] for x in get_data(object_types_sql)]
     return object_types
 
-def get_model_h3_predictions(model_type_choise: str, district_type_choise: str, districs_: list)->pd.DataFrame:
+
+def get_model_h3_predictions(
+    model_type_choise: str, district_type_choise: str, districs_: list
+) -> pd.DataFrame:
     """
-        Получение предсказаний модели на выбранные районы
-        :param model_type_choise - список районов        
-        :param district_type_choise - список районов  
-        :param districs_ - список районов
+    Получение предсказаний модели на выбранные районы
+    :param model_type_choise - список районов
+    :param district_type_choise - список районов
+    :param districs_ - список районов
     """
     model_h3 = pd.DataFrame(
-        get_data(f"""
+        get_data(
+            f"""
         select m.predictions, d.geometry 
         from postamat.platform_model m
         join postamat.platform_domain d on d.geo_h3_10 = m.geo_h3_10
         where 1=1
             and model_type in ('{model_type_choise}')
             and {'adm_name' if district_type_choise == 'Районы' else 'okrug_name'} in {get_sql_list_as_string(districs_)}"""
-                 ),
-        columns=["Значение модели", "geometry"]
+        ),
+        columns=["Значение модели", "geometry"],
     )
-    model_h3['geometry'] = model_h3['geometry'].apply(
-        lambda x: wkb.loads(x, hex=True)).astype(str)
+    model_h3["geometry"] = (
+        model_h3["geometry"].apply(lambda x: wkb.loads(x, hex=True)).astype(str)
+    )
     return model_h3
 
-def get_model_output(model_type_choise: str, district_type_choise: str, districs_: list) -> pd.DataFrame:
+
+def get_model_output(
+    model_type_choise: str, district_type_choise: str, districs_: list
+) -> pd.DataFrame:
     model_output_sql = f"""
         with all_togeather as 
         ( 
@@ -130,49 +140,66 @@ def get_model_output(model_type_choise: str, district_type_choise: str, districs
 
     model_output = pd.DataFrame(
         get_data(model_output_sql),
-        columns=["Адрес", "geometry", 'Координата', "lon", "lat", 'Тип объекта размещения', 'prediction_corrected', "Число этажей",
-                 'Округ', 'Район', 
-                  'Модель рассчёта', 'Значение модели', "rn"]
+        columns=[
+            "Адрес",
+            "geometry",
+            "Координата",
+            "lon",
+            "lat",
+            "Тип объекта размещения",
+            "prediction_corrected",
+            "Число этажей",
+            "Округ",
+            "Район",
+            "Модель рассчёта",
+            "Значение модели",
+            "rn",
+        ],
     )
     model_output = model_output.reset_index()
-    model_output = model_output.drop(['prediction_corrected'], axis = 1)
-    model_output['Номер'] = model_output['index']+1   
+    model_output = model_output.drop(["prediction_corrected"], axis=1)
+    model_output["Номер"] = model_output["index"] + 1
     return model_output
+
 
 def compose_map(postamats, districts, model_output, model_h3):
     """
-        Отрисовка карты
-        :parmam postamats - массив с текущей сетью постаматов (конкуренты)
-        :parmam districts - полигон с выбранными границами районов
-        :parmam model_output - результат оптимизации - на объектах
-        :parmam model_h3 - результат оптимизации - на хексагонах - подложка
+    Отрисовка карты
+    :parmam postamats - массив с текущей сетью постаматов (конкуренты)
+    :parmam districts - полигон с выбранными границами районов
+    :parmam model_output - результат оптимизации - на объектах
+    :parmam model_h3 - результат оптимизации - на хексагонах - подложка
     """
     if len(model_output) == 0:
-        st.text("Не нашлось постаматов под данные фильтры")
         return
 
-    with open('data.txt', 'r') as f:
+    with open("data.txt", "r") as f:
         cfg = f.read()
         cfg = eval(cfg)
 
-    m = leafmap1.Map(center=[postamats['point_lat'].mean(
-    ), postamats['point_lon'].mean()], zoom=9, config=cfg)
+    m = leafmap1.Map(
+        center=[postamats["point_lat"].mean(), postamats["point_lon"].mean()],
+        zoom=9,
+        config=cfg,
+    )
     if len(postamats) > 0:
-        m.add_data(postamats, 'Постаматы')
+        m.add_data(postamats, "Постаматы")
 
     if len(model_output) > 0:
-        m.add_data(model_output, 'Модель')
+        m.add_data(model_output, "Модель")
 
     if len(model_h3) > 0:
-        m.add_data(model_h3, 'Модель(hex)')
+        m.add_data(model_h3, "Модель(hex)")
 
     if len(districts) > 0:
-        m.add_data(districts, 'Районы')
+        m.add_data(districts, "Районы")
     # m.to_streamlit(height=700)
     return m
 
 
-def calculate_coverage(model_type_choise: str, district_type_choise: str, districs_: list):
+def calculate_coverage(
+    model_type_choise: str, district_type_choise: str, districs_: list
+):
     """Расчёт покрытия шаговой доступностью по выбранным постаматам"""
     sql = f"""
         with good_locations as 
@@ -252,28 +279,48 @@ def calculate_coverage(model_type_choise: str, district_type_choise: str, distri
     """
     coverage_output = pd.DataFrame(
         get_data(sql),
-        columns=["Покрытое население в шаговой доступности", "Общее население в шаговой доступности в выбранной локации", "Процент покрытия в выбранной локации"],
+        columns=[
+            "Покрытое население в шаговой доступности",
+            "Общее население в шаговой доступности в выбранной локации",
+            "Процент покрытия в выбранной локации",
+        ],
     )
     return coverage_output
 
 
 def create_reesrt(model_output: pd.DataFrame) -> pd.DataFrame:
     """
-        Формирование реестра объектов
+    Формирование реестра объектов
     """
 
-    model_output_for_report = model_output[['Номер', 'Округ', 'Район', 'Тип объекта размещения', 'Координата',
-        'Адрес', 'Модель рассчёта', 'Значение модели']].copy()
+    model_output_for_report = model_output[
+        [
+            "Номер",
+            "Округ",
+            "Район",
+            "Тип объекта размещения",
+            "Координата",
+            "Адрес",
+            "Модель рассчёта",
+            "Значение модели",
+        ]
+    ].copy()
     return model_output_for_report
+
 
 # ui
 st.set_page_config(layout="wide")
-st.sidebar.subheader('Параметры')
+st.sidebar.subheader("Параметры")
 
 
 # ui по районам
-st.write('<style>div.row-widget.stRadio > div{flex-direction:row;}</style>', unsafe_allow_html=True)
-district_type_choise = st.sidebar.radio("", ("Районы", "Округа"))
+st.write(
+    "<style>div.row-widget.stRadio > div{flex-direction:row;}</style>",
+    unsafe_allow_html=True,
+)
+district_type_choise = st.sidebar.radio(
+    "", ("Районы", "Округа"), label_visibility="collapsed"
+)
 districts = get_districts(district_type_choise)
 
 districts_choise = st.sidebar.multiselect(
@@ -287,15 +334,17 @@ districts = districts[districts["district"].isin(districts_choise)]
 model_type_choise = st.sidebar.selectbox(
     "Модель",
     get_model_types(),
-    help='Выберите необходимую модель размещения. Логика моделей и разница между ними описана в презентации.',
-    index=1
+    help="Выберите необходимую модель размещения. Логика моделей и разница между ними описана в презентации.",
+    index=1,
 )
 
 #
 take_top = st.sidebar.slider(
-    "Кол-во постаматов для размещения", min_value=1, max_value=1000, step=1, value=60)
+    "Кол-во постаматов для размещения", min_value=1, max_value=1000, step=1, value=60
+)
 score_filter = st.sidebar.slider(
-    "Скор модели", min_value=0.0, max_value=100.0, value=(20.0, 100.0))
+    "Скор модели", min_value=0.0, max_value=100.0, value=(20.0, 100.0)
+)
 
 
 object_types = get_object_types()
@@ -305,21 +354,32 @@ object_types_choise = st.sidebar.multiselect(
 
 # модель на хексагонах
 model_h3 = get_model_h3_predictions(
-    model_type_choise, district_type_choise, list(districts['district']))
+    model_type_choise, district_type_choise, list(districts["district"])
+)
 
 # модель на домах
-model_output = get_model_output(model_type_choise, district_type_choise, list(districts['district']))
-postamats = get_postamats(list(districts['district']))
+model_output = get_model_output(
+    model_type_choise, district_type_choise, list(districts["district"])
+)
+postamats = get_postamats(list(districts["district"]))
 
 
 # правая часть ui
-st.write('<style>div.block-container{padding-top:2rem;}</style>', unsafe_allow_html=True)
+st.write(
+    "<style>div.block-container{padding-top:2rem;}</style>", unsafe_allow_html=True
+)
 st.subheader("Карта")
 map_obj = compose_map(postamats, districts, model_output, model_h3)
+if map_obj is None:
+    st.text("Не нашлось постаматов под данные фильтры")
+    st.stop()
+
 map_obj.to_streamlit(height=700)
 
 st.subheader("Отчёт о покрытии")
-report = calculate_coverage(model_type_choise, district_type_choise, list(districts['district']))
+report = calculate_coverage(
+    model_type_choise, district_type_choise, list(districts["district"])
+)
 # CSS to inject contained in a string
 hide_table_row_index = """
             <style>
@@ -336,34 +396,36 @@ st.table(create_reesrt(model_output))
 
 def get_df_for_report(input_df: pd.DataFrame) -> pd.DataFrame:
     df = input_df.copy()
-    df = df.drop(['geometry', 'rn'], axis=1)
-    df = df.rename(columns={
-        "address_name": "Адрес",
-        "purpose_name": "Тип",
-        "prediction": "Скор модели"
-    })
+    df = df.drop(["geometry", "rn"], axis=1)
+    df = df.rename(
+        columns={
+            "address_name": "Адрес",
+            "purpose_name": "Тип",
+            "prediction": "Скор модели",
+        }
+    )
     return df
 
 
 def create_report_file():
-    img_html = ''
-    with open('src/report_1.html') as f:
+    img_html = ""
+    with open("src/report_1.html") as f:
         html_text = f.read()
     df = get_df_for_report(model_output)
     html_text = html_text.format(
         dt=pd.Timestamp.now(),
         model_name=model_type_choise,
         adm_type=district_type_choise,
-        loaction_text=', '.join(districts_choise),
+        loaction_text=", ".join(districts_choise),
         postamat_count=take_top,
-        object_type_filter=', '.join(object_types_choise),
+        object_type_filter=", ".join(object_types_choise),
         df=df.to_html(index=False),
-        gap='',
+        gap="",
         img_html=img_html,
     )
-    pdfkit.from_string(html_text, '/tmp/report.pdf')
+    pdfkit.from_string(html_text, "/tmp/report.pdf")
 
-    with open('src/report_1.html') as f:
+    with open("src/report_1.html") as f:
         html_text = f.read()
 
     img_html = map_obj._repr_html_().decode()
@@ -371,18 +433,19 @@ def create_report_file():
         dt=pd.Timestamp.now(),
         model_name=model_type_choise,
         adm_type=district_type_choise,
-        loaction_text=', '.join(districts_choise),
+        loaction_text=", ".join(districts_choise),
         postamat_count=take_top,
-        object_type_filter=', '.join(object_types_choise),
+        object_type_filter=", ".join(object_types_choise),
         df=df.to_html(index=False),
-        gap='<br />'*48,
-        img_html=img_html)
-    with open('/tmp/report.html', 'w') as f_:
+        gap="<br />" * 48,
+        img_html=img_html,
+    )
+    with open("/tmp/report.html", "w") as f_:
         f_.write(html_text_)
 
 
 create_report_button = st.sidebar.button(
-    label='Сформировать отчет',
+    label="Сформировать отчет",
     on_click=create_report_file,
 )
 
@@ -390,24 +453,25 @@ if create_report_button:
     with open("/tmp/report.pdf", "rb") as file:
         download_button = st.sidebar.download_button(
             label="Скачать отчёт [PDF]",
-            file_name='report.pdf',
+            file_name="report.pdf",
             data=file,
-            mime='application/octet-stream'
+            mime="application/octet-stream",
         )
 
     def convert_df(df):
-        return df.to_csv().encode('utf-8')
+        return df.to_csv().encode("utf-8")
+
     csv = convert_df(get_df_for_report(model_output))
     st.sidebar.download_button(
         label="Скачать отчет [MS Excel]",
         data=csv,
-        file_name='report.csv',
-        mime='text/csv'
+        file_name="report.csv",
+        mime="text/csv",
     )
-    with open('/tmp/report.html', 'rb') as f:
+    with open("/tmp/report.html", "rb") as f:
         download_html_button = st.sidebar.download_button(
             label="Скачать отчёт [HTML]",
-            file_name='report.html',
+            file_name="report.html",
             data=f,
-            mime='application/octet-stream'
+            mime="application/octet-stream",
         )
