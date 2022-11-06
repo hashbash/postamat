@@ -5,8 +5,6 @@ from db import get_data
 from shapely.wkt import loads
 from shapely import wkb
 import pdfkit
-import io
-from PIL import Image
 
 
 def get_sql_list_as_string(items):
@@ -111,10 +109,11 @@ def get_model_output(model_type_choise: str, district_type_choise: str, districs
                 , d.okrug_name
                 , model_type
                 , m.predictions*100 as predictions
-                , row_number() over (partition by pc.geo_h3_10 order by purpose_name asc, predictions desc, floors_ground_count desc) as rn
+                , row_number() over (partition by h.geo_h3_9 order by predictions desc, floors_ground_count desc) as rn
             from postamat.platform_model m
             join postamat.platform_domain d on d.geo_h3_10 = m.geo_h3_10
             join postamat.all_objects pc on pc.geo_h3_10 = m.geo_h3_10
+            join postamat.h3_10_9 h on h.geo_h3_10 = d.geo_h3_10
             where 1=1
                 and model_type = '{model_type_choise}'
                 and {'adm_name' if district_type_choise == 'Районы' else 'okrug_name'} in {get_sql_list_as_string(districs_)}
@@ -127,6 +126,7 @@ def get_model_output(model_type_choise: str, district_type_choise: str, districs
         order by prediction_corrected desc   
         limit {take_top}
     """
+    # print(model_output_sql)
 
     model_output = pd.DataFrame(
         get_data(model_output_sql),
@@ -336,7 +336,7 @@ st.table(create_reesrt(model_output))
 
 def get_df_for_report(input_df: pd.DataFrame) -> pd.DataFrame:
     df = input_df.copy()
-    df = df.drop(['geometry', 'floors_ground_count', 'rn'], axis=1)
+    df = df.drop(['geometry', 'rn'], axis=1)
     df = df.rename(columns={
         "address_name": "Адрес",
         "purpose_name": "Тип",
@@ -345,14 +345,10 @@ def get_df_for_report(input_df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def create_pdf_report():
-
-    # img_data = m._to_png()
-    # img = Image.open(io.BytesIO(img_data))
-
+def create_report_file():
+    img_html = ''
     with open('src/report_1.html') as f:
         html_text = f.read()
-
     df = get_df_for_report(model_output)
     html_text = html_text.format(
         dt=pd.Timestamp.now(),
@@ -361,14 +357,33 @@ def create_pdf_report():
         loaction_text=', '.join(districts_choise),
         postamat_count=take_top,
         object_type_filter=', '.join(object_types_choise),
-        df=df.to_html(index=False)
+        df=df.to_html(index=False),
+        gap='',
+        img_html=img_html,
     )
     pdfkit.from_string(html_text, '/tmp/report.pdf')
+
+    with open('src/report_1.html') as f:
+        html_text = f.read()
+
+    img_html = map_obj._repr_html_().decode()
+    html_text_ = html_text.format(
+        dt=pd.Timestamp.now(),
+        model_name=model_type_choise,
+        adm_type=district_type_choise,
+        loaction_text=', '.join(districts_choise),
+        postamat_count=take_top,
+        object_type_filter=', '.join(object_types_choise),
+        df=df.to_html(index=False),
+        gap='<br />'*48,
+        img_html=img_html)
+    with open('/tmp/report.html', 'w') as f_:
+        f_.write(html_text_)
 
 
 create_report_button = st.sidebar.button(
     label='Сформировать отчет',
-    on_click=create_pdf_report
+    on_click=create_report_file,
 )
 
 if create_report_button:
@@ -389,3 +404,10 @@ if create_report_button:
         file_name='report.csv',
         mime='text/csv'
     )
+    with open('/tmp/report.html', 'rb') as f:
+        download_html_button = st.sidebar.download_button(
+            label="Скачать отчёт [HTML]",
+            file_name='report.html',
+            data=f,
+            mime='application/octet-stream'
+        )
